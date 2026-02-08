@@ -1,75 +1,118 @@
-name: PORTMASTER_TURBO_BUILD_V9
+name: PORTMASTER_SWITCHFIN_MUOS_SAFE
+
 on:
   workflow_dispatch:
 
 jobs:
-  arm64_turbo_build:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Kodları Çek
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: QEMU Kurulumu (ARM64 Taklidi İçin)
-        uses: docker/setup-qemu-action@v3
-
-      - name: Turbo Derleme (Ubuntu 24.04 - ARM64)
+      - name: Build with PortMaster Sysroot (muOS safe)
         run: |
-          # --platform linux/arm64 SAYESİNDE SADECE CİHAZINA UYGUN DOSYALAR İNER
-          docker run --rm --privileged --platform linux/arm64 \
-          -v ${{ github.workspace }}:/work \
-          -w /work \
-          ubuntu:24.04 /bin/bash -c "
-          
+          docker run --rm \
+            -v ${{ github.workspace }}:/work \
+            -w /work \
+            ghcr.io/portmaster-gui/portmaster-buildenv:latest \
+            /bin/bash -c "
+
           set -e
-          export DEBIAN_FRONTEND=noninteractive
-          
-          echo '--- 1. ARM64 KÜTÜPHANELERİ İNDİRİLİYOR ---'
-          apt-get update
-          # Bu komutla inen her şey %100 ARM64 uyumludur.
-          apt-get install -y build-essential git pkg-config wget \
-            libmpv-dev libsdl2-dev libcurl4-openssl-dev \
-            libglm-dev libwebp-dev libfreetype6-dev libopus-dev \
-            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-            libgl1-mesa-dev libgles2-mesa-dev wayland-protocols libwayland-dev libxkbcommon-dev \
-            libdrm-dev libudev-dev libz-dev libssl-dev libass-dev
 
-          echo '--- 2. SWITCHFIN DERLENİYOR ---'
-          wget -q https://github.com/Kitware/CMake/releases/download/v3.29.0/cmake-3.29.0-linux-aarch64.sh -O cmake.sh
-          sh cmake.sh --skip-license --prefix=/usr/local
+          echo '=== PORTMASTER SYSROOT ACTIVE ==='
+          echo \"SYSROOT: \$PORTMASTER_SYSROOT\"
 
-          rm -rf build_sw && mkdir -p build_sw && cd build_sw
-          
+          # -------------------------------------------------
+          # FFMPEG (PORTMASTER ABI)
+          # -------------------------------------------------
+          wget -qO- https://ffmpeg.org/releases/ffmpeg-5.1.4.tar.xz | tar Jxf -
+          cd ffmpeg-5.1.4
+
+          ./configure \
+            --prefix=\$PORTMASTER_SYSROOT/usr \
+            --enable-shared \
+            --disable-static \
+            --disable-programs \
+            --disable-debug \
+            --disable-doc \
+            --enable-zlib \
+            --enable-libass \
+            --enable-openssl \
+            --disable-avdevice \
+            --arch=aarch64
+
+          make -j\$(nproc)
+          make install
+          cd ..
+
+          # -------------------------------------------------
+          # MPV (SDL ONLY — muOS SAFE)
+          # -------------------------------------------------
+          wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf -
+          cd mpv-0.36.0
+
+          meson setup build \
+            --prefix=\$PORTMASTER_SYSROOT/usr \
+            --default-library=shared \
+            -Dlibmpv=true \
+            -Dcplayer=false \
+            -Dtests=false \
+            -Dlua=disabled \
+            -Dlibarchive=disabled \
+            -Dsdl2=enabled \
+            -Dwayland=disabled \
+            -Dgbm=disabled \
+            -Dx11=disabled \
+            -Ddrm=disabled \
+            -Degl=disabled \
+            -Dgl=disabled
+
+          ninja -C build
+          ninja -C build install
+          cd ..
+
+          # -------------------------------------------------
+          # SWITCHFIN (SDL BACKEND — muOS SAFE)
+          # -------------------------------------------------
+          rm -rf build_sw && mkdir build_sw && cd build_sw
+
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DPLATFORM_DESKTOP=ON \
-            -DUSE_GLFW=ON \
-            -DUSE_GL2=ON \
+            -DUSE_GLFW=OFF \
+            -DUSE_GL2=OFF \
+            -DUSE_SDL2=ON \
+            -DCMAKE_PREFIX_PATH=\$PORTMASTER_SYSROOT/usr \
             -DCMAKE_C_FLAGS='-pthread' \
             -DCMAKE_CXX_FLAGS='-pthread'
-          
+
           make -j\$(nproc)
           cd ..
 
-          echo '--- 3. DOSYALAR PAKETLENİYOR ---'
+          # -------------------------------------------------
+          # PACKAGE (PORTMASTER STYLE)
+          # -------------------------------------------------
           mkdir -p dist/libs
-          
+
           cp build_sw/Switchfin dist/
-          
-          # İndirilen ARM64 kütüphanelerini paketliyoruz
-          echo 'Kütüphaneler kopyalanıyor...'
-          cp -d /usr/lib/aarch64-linux-gnu/libmpv.so* dist/libs/ 2>/dev/null || true
-          cp -d /usr/lib/aarch64-linux-gnu/libav*.so* dist/libs/ 2>/dev/null || true
-          cp -d /usr/lib/aarch64-linux-gnu/libsw*.so* dist/libs/ 2>/dev/null || true
-          cp -d /usr/lib/aarch64-linux-gnu/libpostproc.so* dist/libs/ 2>/dev/null || true
-          cp -d /usr/lib/aarch64-linux-gnu/libplacebo.so* dist/libs/ 2>/dev/null || true
-          
-          echo 'Paketleme Tamam!'
+
+          # PortMaster sysroot libs
+          cp -d \$PORTMASTER_SYSROOT/usr/lib/libmpv.so* dist/libs/ || true
+          cp -d \$PORTMASTER_SYSROOT/usr/lib/libavcodec.so* dist/libs/ || true
+          cp -d \$PORTMASTER_SYSROOT/usr/lib/libavformat.so* dist/libs/ || true
+          cp -d \$PORTMASTER_SYSROOT/usr/lib/libavutil.so* dist/libs/ || true
+          cp -d \$PORTMASTER_SYSROOT/usr/lib/libswresample.so* dist/libs/ || true
+          cp -d \$PORTMASTER_SYSROOT/usr/lib/libswscale.so* dist/libs/ || true
+
+          echo '=== BUILD COMPLETE (muOS SAFE) ==='
           "
 
-      - name: Dosyayı İndir
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Switchfin-Portmaster-TURBO
+          name: Switchfin-PortMaster-muOS-SAFE
           path: dist/
