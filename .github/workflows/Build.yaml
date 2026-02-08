@@ -1,33 +1,117 @@
-name: PORTMASTER_FINAL_BUILD
+name: PORTMASTER_CUSTOM_ENGINE_V4_MANUAL
 on:
-  push:
-    branches: [ dev, main, master ] # Her kaydettiğinde çalışır
-  workflow_dispatch:          # Butonla çalıştırır
+  workflow_dispatch: # Butonla çalıştır
 
 jobs:
-  arm64_build:
+  arm64_custom_build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Kaynak Kodları Çek
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: QEMU Setup
+      - name: QEMU Kurulumu
         uses: docker/setup-qemu-action@v3
 
-      - name: Portmaster Derleme
+      - name: Custom Engine Build (FFmpeg + MPV + Switchfin)
         run: |
-          docker run --platform linux/arm64 -v ${{ github.workspace }}:/work -w /work ubuntu:20.04 /bin/bash -c "
-          export DEBIAN_FRONTEND=noninteractive && \
-          apt-get update && apt-get install -y build-essential git pkg-config wget libmpv-dev libsdl2-dev libcurl4-openssl-dev libglm-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libx11-dev libwebp-dev libfreetype6-dev libopus-dev && \
-          wget https://github.com/Kitware/CMake/releases/download/v3.29.0/cmake-3.29.0-linux-aarch64.sh -O cmake.sh && \
-          sh cmake.sh --skip-license --prefix=/usr/local && \
-          mkdir -p build && cd build && \
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DPLATFORM_DESKTOP=ON -DUSE_GLFW=ON -DUSE_GL2=ON -DCMAKE_C_FLAGS='-pthread' -DCMAKE_CXX_FLAGS='-pthread' && \
-          make -j2"
+          docker run --rm --privileged --platform linux/arm64 \
+          -v ${{ github.workspace }}:/work \
+          -w /work \
+          ubuntu:22.04 /bin/bash -c "
+          
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          
+          # ---------------------------------------------------------
+          # 1. HAZIRLIK: Gerekli Derleme Araçlarını Kur
+          # ---------------------------------------------------------
+          echo '--- TEMEL ARACLAR KURULUYOR ---'
+          apt-get update
+          apt-get install -y build-essential git pkg-config wget \
+            python3-pip python3-setuptools python3-wheel ninja-build \
+            nasm yasm \
+            libsdl2-dev libcurl4-openssl-dev \
+            libglm-dev libwebp-dev libfreetype6-dev libopus-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libgl1-mesa-dev libgles2-mesa-dev wayland-protocols libwayland-dev libxkbcommon-dev \
+            libdrm-dev libudev-dev libz-dev libssl-dev libass-dev
+
+          # Meson'u (MPV için) kuralım
+          pip3 install meson
+
+          # ---------------------------------------------------------
+          # 2. FFMPEG 4.4.1 DERLEME (Senin Ayarların)
+          # ---------------------------------------------------------
+          echo '--- FFMPEG 4.4.1 DERLENIYOR ---'
+          wget -qO- https://ffmpeg.org/releases/ffmpeg-4.4.1.tar.xz | tar Jxf - -C .
+          cd ffmpeg-4.4.1
+          
+          # EKLEME: --enable-shared (MPV'nin kullanabilmesi için şart)
+          # EKLEME: --prefix=/usr (Sisteme tam entegre olsun)
+          ./configure \
+            --prefix=/usr \
+            --enable-shared \
+            --disable-static \
+            --disable-programs --disable-debug --disable-avdevice \
+            --enable-nonfree --enable-openssl --disable-doc --enable-libass --enable-zlib \
+            --enable-libdrm --enable-libudev \
+            --disable-protocols --enable-protocol=file,http,tcp,udp,hls,https,tls,httpproxy \
+            --disable-muxers --disable-encoders --enable-encoder=png \
+            --arch=aarch64
+          
+          make -j\$(nproc)
+          make install
+          cd ..
+
+          # ---------------------------------------------------------
+          # 3. MPV 0.36.0 DERLEME (Senin Ayarların)
+          # ---------------------------------------------------------
+          echo '--- MPV 0.36.0 DERLENIYOR ---'
+          wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf - -C .
+          cd mpv-0.36.0
+          
+          # EKLEME: -Dwayland=enabled -Dgbm=enabled (Portmaster için kritik)
+          meson setup build \
+            --prefix=/usr \
+            --default-library=shared \
+            -Dlibmpv=true \
+            -Dcplayer=false \
+            -Dtests=false \
+            -Dlua=disabled \
+            -Dlibarchive=disabled \
+            -Dsdl2=enabled \
+            -Dwayland=enabled \
+            -Dgbm=enabled
+            
+          cd build && ninja && ninja install
+          cd ../..
+
+          # ---------------------------------------------------------
+          # 4. SWITCHFIN DERLEME (Final)
+          # ---------------------------------------------------------
+          echo '--- CMAKE GUNCELLEME ---'
+          wget -q https://github.com/Kitware/CMake/releases/download/v3.29.0/cmake-3.29.0-linux-aarch64.sh -O cmake.sh
+          sh cmake.sh --skip-license --prefix=/usr/local
+
+          echo '--- SWITCHFIN DERLENIYOR ---'
+          # Artık apt'den değil, elle derlediğimiz libmpv'yi kullanacak
+          rm -rf build_sw && mkdir -p build_sw && cd build_sw
+          
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPLATFORM_DESKTOP=ON \
+            -DUSE_GLFW=ON \
+            -DUSE_GL2=ON \
+            -DCMAKE_C_FLAGS='-pthread' \
+            -DCMAKE_CXX_FLAGS='-pthread'
+          
+          make -j\$(nproc)
+          "
 
       - name: Dosyayı Paketle
         uses: actions/upload-artifact@v4
         with:
-          name: Switchfin-Portmaster-ARM64
-          path: build/Switchfin
+          name: Switchfin-Portmaster-CustomEngine
+          path: build_sw/Switchfin
