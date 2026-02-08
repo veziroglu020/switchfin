@@ -1,4 +1,4 @@
-name: PORTMASTER_SWITCHFIN_MUOS_SAFE_FULL
+name: PORTMASTER_SWITCHFIN_V11_SYSROOT_DEBUG
 
 on:
   workflow_dispatch:
@@ -8,8 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -17,7 +16,7 @@ jobs:
         run: |
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
-      - name: Build with PortMaster Sysroot (muOS SAFE)
+      - name: Build with PortMaster Sysroot (DEBUG + SDL ONLY)
         run: |
           docker run --rm \
             --platform=linux/arm64 \
@@ -28,12 +27,22 @@ jobs:
 
           set -e
 
-          echo '=== PORTMASTER BUILDER ACTIVE ==='
-          echo \"SYSROOT: \$PORTMASTER_SYSROOT\"
+          echo '=== DEBUG: FIND PORTMASTER SYSROOT ==='
+          ls -l /opt || true
+          find /opt -maxdepth 3 -type d | head -n 50 || true
 
-          # -------------------------------
-          # FFMPEG (SOFTWARE DECODE)
-          # -------------------------------
+          # Manuel SYSROOT ayarla (en yaygın path)
+          export PORTMASTER_SYSROOT=/opt/portmaster/sysroot
+          export PKG_CONFIG_PATH=\$PORTMASTER_SYSROOT/usr/lib/pkgconfig:\$PORTMASTER_SYSROOT/usr/share/pkgconfig
+          export CMAKE_PREFIX_PATH=\$PORTMASTER_SYSROOT/usr
+
+          echo \"SYSROOT=\$PORTMASTER_SYSROOT\"
+          ls -l \$PORTMASTER_SYSROOT || true
+          ls -l \$PORTMASTER_SYSROOT/usr || true
+
+          # -------------------------------------------------
+          # FFMPEG (NO LIBASS, SOFTWARE ONLY)
+          # -------------------------------------------------
           wget -qO- https://ffmpeg.org/releases/ffmpeg-5.1.4.tar.xz | tar Jxf -
           cd ffmpeg-5.1.4
 
@@ -45,19 +54,19 @@ jobs:
             --disable-debug \
             --disable-doc \
             --enable-zlib \
-            --enable-libass \
             --enable-openssl \
             --disable-avdevice \
             --disable-hwaccels \
+            --disable-libass \
             --arch=aarch64
 
           make -j\$(nproc)
           make install
           cd ..
 
-          # -------------------------------
-          # MPV (SDL ONLY — NO WAYLAND/GL)
-          # -------------------------------
+          # -------------------------------------------------
+          # MPV (SDL ONLY)
+          # -------------------------------------------------
           wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf -
           cd mpv-0.36.0
 
@@ -81,9 +90,9 @@ jobs:
           ninja -C build install
           cd ..
 
-          # -------------------------------
+          # -------------------------------------------------
           # SWITCHFIN (SDL BACKEND)
-          # -------------------------------
+          # -------------------------------------------------
           rm -rf build_sw && mkdir build_sw && cd build_sw
 
           cmake .. \
@@ -92,16 +101,14 @@ jobs:
             -DUSE_GLFW=OFF \
             -DUSE_GL2=OFF \
             -DUSE_SDL2=ON \
-            -DCMAKE_PREFIX_PATH=\$PORTMASTER_SYSROOT/usr \
-            -DCMAKE_C_FLAGS='-pthread' \
-            -DCMAKE_CXX_FLAGS='-pthread'
+            -DCMAKE_PREFIX_PATH=\$PORTMASTER_SYSROOT/usr
 
           make -j\$(nproc)
           cd ..
 
-          # -------------------------------
-          # PACKAGE (PORTMASTER STYLE)
-          # -------------------------------
+          # -------------------------------------------------
+          # PACKAGE
+          # -------------------------------------------------
           mkdir -p dist/libs
 
           cp build_sw/Switchfin dist/
@@ -113,11 +120,10 @@ jobs:
           cp -d \$PORTMASTER_SYSROOT/usr/lib/libswresample.so* dist/libs/ || true
           cp -d \$PORTMASTER_SYSROOT/usr/lib/libswscale.so* dist/libs/ || true
 
-          echo '=== BUILD COMPLETE (muOS SAFE, SOFTWARE RENDER) ==='
+          echo '=== BUILD DONE (SYSROOT DEBUG, muOS SAFE) ==='
           "
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: Switchfin-PortMaster-muOS-SAFE
+          name: Switchfin-PortMaster-muOS-SYSROOT-DEBUG
           path: dist/
