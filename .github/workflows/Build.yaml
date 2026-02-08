@@ -1,4 +1,4 @@
-name: PORTMASTER_CUSTOM_ENGINE_V4_MANUAL
+name: PORTMASTER_CUSTOM_ENGINE_V5_FIXED
 on:
   workflow_dispatch: # Butonla çalıştır
 
@@ -25,9 +25,9 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           
           # ---------------------------------------------------------
-          # 1. HAZIRLIK: Gerekli Derleme Araçlarını Kur
+          # 1. HAZIRLIK
           # ---------------------------------------------------------
-          echo '--- TEMEL ARACLAR KURULUYOR ---'
+          echo '--- 1. TEMEL ARACLAR KURULUYOR ---'
           apt-get update
           apt-get install -y build-essential git pkg-config wget \
             python3-pip python3-setuptools python3-wheel ninja-build \
@@ -38,25 +38,23 @@ jobs:
             libgl1-mesa-dev libgles2-mesa-dev wayland-protocols libwayland-dev libxkbcommon-dev \
             libdrm-dev libudev-dev libz-dev libssl-dev libass-dev
 
-          # Meson'u (MPV için) kuralım
           pip3 install meson
 
           # ---------------------------------------------------------
-          # 2. FFMPEG 4.4.1 DERLEME (Senin Ayarların)
+          # 2. FFMPEG 4.4.1 DERLEME (DÜZELTİLDİ)
           # ---------------------------------------------------------
-          echo '--- FFMPEG 4.4.1 DERLENIYOR ---'
+          echo '--- 2. FFMPEG 4.4.1 DERLENIYOR ---'
           wget -qO- https://ffmpeg.org/releases/ffmpeg-4.4.1.tar.xz | tar Jxf - -C .
           cd ffmpeg-4.4.1
           
-          # EKLEME: --enable-shared (MPV'nin kullanabilmesi için şart)
-          # EKLEME: --prefix=/usr (Sisteme tam entegre olsun)
+          # DÜZELTME: --enable-libudev KOMUTU KALDIRILDI (Hata sebebiydi)
           ./configure \
             --prefix=/usr \
             --enable-shared \
             --disable-static \
             --disable-programs --disable-debug --disable-avdevice \
             --enable-nonfree --enable-openssl --disable-doc --enable-libass --enable-zlib \
-            --enable-libdrm --enable-libudev \
+            --enable-libdrm \
             --disable-protocols --enable-protocol=file,http,tcp,udp,hls,https,tls,httpproxy \
             --disable-muxers --disable-encoders --enable-encoder=png \
             --arch=aarch64
@@ -66,13 +64,12 @@ jobs:
           cd ..
 
           # ---------------------------------------------------------
-          # 3. MPV 0.36.0 DERLEME (Senin Ayarların)
+          # 3. MPV 0.36.0 DERLEME
           # ---------------------------------------------------------
-          echo '--- MPV 0.36.0 DERLENIYOR ---'
+          echo '--- 3. MPV 0.36.0 DERLENIYOR ---'
           wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf - -C .
           cd mpv-0.36.0
           
-          # EKLEME: -Dwayland=enabled -Dgbm=enabled (Portmaster için kritik)
           meson setup build \
             --prefix=/usr \
             --default-library=shared \
@@ -89,14 +86,12 @@ jobs:
           cd ../..
 
           # ---------------------------------------------------------
-          # 4. SWITCHFIN DERLEME (Final)
+          # 4. SWITCHFIN DERLEME
           # ---------------------------------------------------------
-          echo '--- CMAKE GUNCELLEME ---'
+          echo '--- 4. CMAKE VE SWITCHFIN ---'
           wget -q https://github.com/Kitware/CMake/releases/download/v3.29.0/cmake-3.29.0-linux-aarch64.sh -O cmake.sh
           sh cmake.sh --skip-license --prefix=/usr/local
 
-          echo '--- SWITCHFIN DERLENIYOR ---'
-          # Artık apt'den değil, elle derlediğimiz libmpv'yi kullanacak
           rm -rf build_sw && mkdir -p build_sw && cd build_sw
           
           cmake .. \
@@ -113,5 +108,5 @@ jobs:
       - name: Dosyayı Paketle
         uses: actions/upload-artifact@v4
         with:
-          name: Switchfin-Portmaster-CustomEngine
+          name: Switchfin-Portmaster-CustomEngine-V5
           path: build_sw/Switchfin
