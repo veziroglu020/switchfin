@@ -23,7 +23,7 @@ jobs:
           wget https://github.com/Kitware/CMake/releases/download/v3.29.0/cmake-3.29.0-linux-aarch64.sh -O cmake.sh && \
           sh cmake.sh --skip-license --prefix=/usr/local && \
           mkdir -p build && cd build && \
-          cmake .. -DPLATFORM_DESKTOP=ON -DUSE_SDL2=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS='-pthread' -DCMAKE_CXX_FLAGS='-pthread' && \
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DPLATFORM_DESKTOP=ON -DUSE_GLFW=ON -DUSE_GL2=ON -DCMAKE_C_FLAGS='-pthread' -DCMAKE_CXX_FLAGS='-pthread' && \
           make -j2"
 
       - name: Dosyayı Paketle
