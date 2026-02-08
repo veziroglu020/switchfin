@@ -1,4 +1,4 @@
-name: PORTMASTER_SWITCHFIN_MUOS_SAFE
+name: PORTMASTER_SWITCHFIN_MUOS_SAFE_FULL
 
 on:
   workflow_dispatch:
@@ -13,22 +13,27 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Build with PortMaster Sysroot (muOS safe)
+      - name: Enable QEMU
+        run: |
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+      - name: Build with PortMaster Sysroot (muOS SAFE)
         run: |
           docker run --rm \
+            --platform=linux/arm64 \
             -v ${{ github.workspace }}:/work \
             -w /work \
-            ghcr.io/portmaster-gui/portmaster-buildenv:latest \
+            ghcr.io/monkeyx-net/portmaster-build-templates/portmaster-builder:aarch64-latest \
             /bin/bash -c "
 
           set -e
 
-          echo '=== PORTMASTER SYSROOT ACTIVE ==='
+          echo '=== PORTMASTER BUILDER ACTIVE ==='
           echo \"SYSROOT: \$PORTMASTER_SYSROOT\"
 
-          # -------------------------------------------------
-          # FFMPEG (PORTMASTER ABI)
-          # -------------------------------------------------
+          # -------------------------------
+          # FFMPEG (SOFTWARE DECODE)
+          # -------------------------------
           wget -qO- https://ffmpeg.org/releases/ffmpeg-5.1.4.tar.xz | tar Jxf -
           cd ffmpeg-5.1.4
 
@@ -43,15 +48,16 @@ jobs:
             --enable-libass \
             --enable-openssl \
             --disable-avdevice \
+            --disable-hwaccels \
             --arch=aarch64
 
           make -j\$(nproc)
           make install
           cd ..
 
-          # -------------------------------------------------
-          # MPV (SDL ONLY — muOS SAFE)
-          # -------------------------------------------------
+          # -------------------------------
+          # MPV (SDL ONLY — NO WAYLAND/GL)
+          # -------------------------------
           wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf -
           cd mpv-0.36.0
 
@@ -75,9 +81,9 @@ jobs:
           ninja -C build install
           cd ..
 
-          # -------------------------------------------------
-          # SWITCHFIN (SDL BACKEND — muOS SAFE)
-          # -------------------------------------------------
+          # -------------------------------
+          # SWITCHFIN (SDL BACKEND)
+          # -------------------------------
           rm -rf build_sw && mkdir build_sw && cd build_sw
 
           cmake .. \
@@ -93,14 +99,13 @@ jobs:
           make -j\$(nproc)
           cd ..
 
-          # -------------------------------------------------
+          # -------------------------------
           # PACKAGE (PORTMASTER STYLE)
-          # -------------------------------------------------
+          # -------------------------------
           mkdir -p dist/libs
 
           cp build_sw/Switchfin dist/
 
-          # PortMaster sysroot libs
           cp -d \$PORTMASTER_SYSROOT/usr/lib/libmpv.so* dist/libs/ || true
           cp -d \$PORTMASTER_SYSROOT/usr/lib/libavcodec.so* dist/libs/ || true
           cp -d \$PORTMASTER_SYSROOT/usr/lib/libavformat.so* dist/libs/ || true
@@ -108,7 +113,7 @@ jobs:
           cp -d \$PORTMASTER_SYSROOT/usr/lib/libswresample.so* dist/libs/ || true
           cp -d \$PORTMASTER_SYSROOT/usr/lib/libswscale.so* dist/libs/ || true
 
-          echo '=== BUILD COMPLETE (muOS SAFE) ==='
+          echo '=== BUILD COMPLETE (muOS SAFE, SOFTWARE RENDER) ==='
           "
 
       - name: Upload Artifact
